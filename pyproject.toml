@@ -1,6 +1,6 @@
 [project]
 name = "sql-finetune"
 version = "0.1.0"
-description = "Learn SQL fine-tuning on Apple silicon with MLX-LM"
+description = "Local text-to-SQL generation, LoRA adaptation and execution evaluation with MLX-LM"
 requires-python = ">=3.12,<3.13"
 dependencies = ["mlx-lm[train]==0.32.2"]

@@ -1,266 +1,226 @@
-# Learn language-model fine-tuning with SQL
+# SQL Fine-Tuning with MLX
 
-This project teaches a small language model to turn an English question into SQL.
+A local text-to-SQL pipeline for Apple silicon. Generate SQLite queries from a schema and an English question, train LoRA adapters, retrieve relevant SQL examples, and compare model outputs by executing them against reviewed test databases.
 
-You give it the table structure and a question:
+The project uses Qwen2.5 instruction models through MLX-LM. The selected v3 adapter runs with the original 0.5B model; a separate 3B checkpoint and a retrieval baseline provide comparisons without additional project training.
 
-```text
-Table:    employees(name, salary)
-Question: How many employees earn more than 80000?
+[Architecture](docs/architecture.md) · [Data inventory](docs/data.md) · [Experiment record and full SQL outputs](docs/experiments.md)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Input["Schema + English question"] --> Prompt["Chat prompt"]
+    Corpus["720 v3 training examples"] -. "optional BM25 top 3" .-> Prompt
+    Prompt --> Model["Qwen 0.5B or 3B via MLX-LM"]
+    Adapter["Saved LoRA adapter"] -. "optional, 0.5B only" .-> Model
+    Model --> SQL["Generated SQL"]
+    SQL --> Output["Terminal output"]
+    SQL --> Check["Restricted SQLite fixture runner"]
+    Fixtures["Reviewed rows + expected answers"] --> Check
+    Check --> Report["JSON predictions and scores"]
 ```
 
-It should generate:
-
-```sql
-SELECT COUNT(*) FROM employees WHERE salary > 80000;
-```
-
-We compare the original model with a version that received extra training, then run their SQL on small SQLite databases to check the answers.
-
-Choose what you want to do:
-
-- [Use the saved model now](#start-here-use-the-model-we-already-trained)
-- [Train your own adapter](#train-your-own-adapter)
-- [Set up a clean checkout](#set-up-another-checkout)
-
-## Start here: use the model we already trained
-
-Your project folder is:
-
-```text
-/Users/kianguyen/Dev/sql-finetune-mlx
-```
-
-The Python environment, training data and saved adapters are already available in this local checkout.
-
-To try the selected model, run:
-
-```bash
-cd /Users/kianguyen/Dev/sql-finetune-mlx
-uv run python ask.py --adapter adapters/sql-v3
-```
-
-This generates an answer. It does not start training.
-
-To ask the original model the same default question:
-
-```bash
-uv run python ask.py
-```
-
-You can use the existing model immediately. Training a new version is a separate, optional step described below.
-
-## What is being trained?
-
-| Term | Meaning in this project |
+| Component | Responsibility |
 | --- | --- |
-| Original model | `Qwen2.5-0.5B-Instruct`, an existing model with language and SQL ability |
-| Fine-tuning | Extra training on examples of questions and correct SQL |
-| LoRA adapter | Small files containing the changes learned during training |
-| Schema | The table names, columns and types supplied with a question |
-| Inference | Asking the model to generate an answer |
-| Checkpoint | A saved adapter snapshot from a particular training step |
+| Python 3.12 + `uv` | Reproducible environment and command execution |
+| MLX | Model computation on the Apple GPU |
+| MLX-LM 0.32.2 | Qwen loading, greedy generation and LoRA training |
+| Transformers tokenizer | Chat formatting, tokenization and training-length checks |
+| LoRA adapter | Learned parameter updates applied alongside the frozen 0.5B model |
+| BM25 retriever | Selects training examples by schema/question word overlap; no embedding model or vector database |
+| Python SQLite | Executes model queries in disposable, restricted databases and checks returned rows |
 
-The original model's weights remain frozen during LoRA training. To use the learned changes, load the original model with the adapter:
+Generation prints SQL; it does not connect to an application database. Evaluation uses only the committed fixture definitions. The [architecture reference](docs/architecture.md) describes the code paths and execution restrictions.
 
-```text
-Without --adapter: question + schema -> original model -> SQL
-With --adapter:    question + schema -> original model + learned adapter -> SQL
-```
+## Experiment results
 
-The selected adapter lives in `adapters/sql-v3/`.
+Recorded locally on an Apple M4 with 16 GB unified memory. A question passes only if its generated query returns correct results on all three fixture databases.
 
-## What improved?
+| Variant on the same 12 questions | Strict raw-response passes | Passes after code-fence-only cleanup |
+| --- | ---: | ---: |
+| Original Qwen2.5-0.5B-Instruct | 7/12 | 7/12 |
+| Original 0.5B + three retrieved examples | 7/12 | 10/12 |
+| Original Qwen2.5-3B-Instruct | 11/12 | 11/12 |
+| Original 0.5B + selected v3 adapter | **12/12** | **12/12** |
 
-The recorded final comparison used twelve new questions that were excluded from training and checkpoint selection:
+The cleanup score is a separate post-hoc diagnostic: it removes one Markdown code fence without repairing SQL. Three otherwise-correct RAG queries failed only because they contained fences.
 
-| Model | Questions answered correctly |
-| --- | ---: |
-| Original model | 7/12 |
-| Original model with the selected v3 adapter | 12/12 |
+The 3B model's only miss converted a stored month-name date to ISO format. Excluding both date-convention questions, 3B and v3 tie at **10/10**. These are small synthetic, single-table tasks with patterns shared by the curriculum; the twelve questions were already inspected before the four-way follow-up. This is not a broad SQL benchmark.
 
-Each question had three small test databases. Its generated SQL had to return the right results on all three.
+Earlier training rounds are retained:
 
-For example, the original model omitted `GROUP BY department` when asked for totals per department. The adapted model included it and returned a separate total for each department.
+| Experiment | Training data | Updates / learning rate | Execution result |
+| --- | --- | --- | --- |
+| V1 | 1,000 public-data examples | 100 / 0.0001 | Regressed: 4/8 versus original 6/8 |
+| V2 | 672 balanced generated examples | 600 / 0.00002; checkpoint 100 selected | Tied: 14/16 versus original 14/16 |
+| V3 | 720 generated examples, including counting paraphrases and literal dates | 300 / 0.00001; checkpoint 300 selected | 12/12 versus original 7/12 |
 
-These results cover small, synthetic, single-table SQL tasks. Two questions test this project's date-storage convention. Full results, earlier failed attempts and evaluation limits are in [RESULTS.md](RESULTS.md).
+The denominators represent different evaluation sets and must not be compared as one continuous accuracy metric. [Full experiment history, selection rules, per-question SQL and reproduction commands](docs/experiments.md).
 
-The follow-up on the same questions scored **11/12** for the larger Qwen2.5-3B-Instruct model without extra project training and **10/12** for the original 0.5B model with retrieved examples after removing Markdown fences. RAG's strict raw-response score was 7/12. Excluding the two local date-convention cases, the larger model and v3 tie at 10/10.
+## Data available
 
-See [MODEL_COMPARISON.md](MODEL_COMPARISON.md) for all twelve questions, generated SQL, strict scores, the separate code-fence diagnostic and reproduction commands. This was a retrospective comparison on already inspected questions.
+Counts below were checked against the local datasets and fixture definitions. Training counts are labelled conversations, not populated database rows.
 
-## What each tool does
+| Dataset / role | Amount | What it contains | Location / availability |
+| --- | --- | --- | --- |
+| V1 public-data sample | 1,000 train, 100 validation, 100 reserved test | English questions, `CREATE TABLE` schemas and reference SQL; selected from 78,577 SQL Create Context records with disjoint table-name splits | `data/`; generated locally, excluded from Git |
+| V2 curriculum | 672 train, 112 validation | Fourteen balanced single-table SQL task families; targets checked against independently calculated fixture answers | `data/v2/`; generated locally, excluded from Git |
+| V3 curriculum | 720 train, 120 validation | Fifteen balanced families, counting paraphrases, literal month-name dates; 48 training and 8 validation examples per family | `data/v3/`; current training dataset, excluded from Git |
+| RAG corpus | Same 720 v3 training examples | Schema/question/SQL examples retrieved at inference time; not an additional dataset | `data/v3/train.jsonl` |
+| Original development suite | 8 questions, 24 fixtures | Unique-bike counts, NULL-aware counts, filters, dates, grouping and ordering | `fixtures/execution_cases.json`; committed |
+| Opened v2 suite | 16 questions, 48 fixtures | New schemas/wording within the SQL task families; later used for v3 development | `fixtures/execution_holdout.json`; committed |
+| V3 comparison suite | 12 questions, 36 fixtures | Distinct counts, filters, grouping, ordering and two date conventions; used for the recorded four-way comparison | `fixtures/execution_holdout_v3.json`; committed |
 
-| Tool | Job |
-| --- | --- |
-| `uv` | Creates the Python environment and runs project commands |
-| MLX | Performs model computations on the Apple GPU |
-| MLX-LM | Loads the model, trains adapters and generates text |
-| SQLite | Executes the generated SQL so we can check its results |
+V3 covers row counts, filtered counts, distinct counts, non-NULL counts, minimum, maximum, average, filtered sums, sums per group, counts per group, ascending and descending order, text filters, numeric filters and literal-text dates. [Task examples, data formats, provenance and split boundaries](docs/data.md).
 
-Run model jobs sequentially on this 16 GB Mac. The QTMS validation wrapper is for QTMS work and is not needed by this project.
+The original public dataset's populated databases are **not available** in this project. Execution fixtures are constructed test data, not those original databases. The reserved 100-example public test split remains unscored. There is no independent joins/subqueries benchmark or production database integration.
 
-## Try your own question
+## Set up
 
-Supply both the table definition and the question:
-
-```bash
-uv run python ask.py --adapter adapters/sql-v3 --schema 'CREATE TABLE products (name TEXT, price REAL);' --question 'What is the highest product price?'
-```
-
-The expected query is:
-
-```sql
-SELECT MAX(price) FROM products;
-```
-
-`ask.py` prints SQL. It does not connect to your own databases.
-
-## Train your own adapter
-
-Use this section when you want to learn by making another training run.
-
-### 1. Check that the training data exists
-
-The current data is in `data/v3/`:
-
-| File | Purpose |
-| --- | --- |
-| `train.jsonl` | 720 examples available for learning |
-| `valid.jsonl` | 120 examples used to check training |
-| `metadata.json` | Dataset version, example counts and evaluation-file hash |
-
-Each training example contains a schema, an English question and the correct SQL. The examples cover 15 SQL skills equally, including ordinary counts, unique counts, filters, grouping and ordering.
-
-The generator checks the target SQL against independently calculated answers, including duplicates, NULLs and empty tables.
-
-If `data/v3/` already exists, reuse it. In a clean checkout where it is missing, create it with:
+Requirements: an Apple silicon Mac, `uv`, and access to this private repository. Python 3.12 is selected by `.python-version`; dependencies are pinned in `uv.lock`.
 
 ```bash
-mkdir -p data
-uv run python prepare_curriculum.py --version 3
-```
-
-The script refuses to replace an existing dataset.
-
-### 2. Train into a new directory
-
-Run:
-
-```bash
-uv run mlx_lm.lora --config train-v3.yaml --adapter-path adapters/my-sql-run-01
-```
-
-Choose an unused directory name for each run. This keeps the selected `adapters/sql-v3` adapter available for comparison.
-
-The command loads the original model and trains a fresh adapter using the settings in `train-v3.yaml`:
-
-| Setting | Value | Meaning |
-| --- | --- | --- |
-| Learning rate | 0.00001 | Controls the size of training updates |
-| Training steps | 300 | Number of updates |
-| Batch size | 1 | One training example per update |
-| LoRA layers / rank | 8 / 8 | Where the adapter is attached and its size |
-| Maximum input length | 512 tokens | Limits the length of each example |
-
-With batch size 1, 300 steps is less than a full pass through 720 examples.
-
-Training saves `adapters.safetensors`, `adapter_config.json` and snapshots every 100 steps in your chosen output directory. A lower training loss means better prediction of the training answer text; execution checks tell us whether the SQL produces the right results.
-
-### 3. Try your new adapter
-
-```bash
-uv run python ask.py --adapter adapters/my-sql-run-01
-```
-
-Change the directory in this command if you chose a different name.
-
-### 4. Compare it with the original
-
-Run both models on the same eight development questions:
-
-```bash
-# Original model
-uv run python evaluate_execution.py --out results/my-original-dev.json
-
-# Your new adapter
-uv run python evaluate_execution.py --adapter adapters/my-sql-run-01 --out results/my-sql-dev.json
-```
-
-Compare `correct_cases` in the two JSON reports. Read the saved SQL and failed fixtures to understand mistakes. Choose new report filenames when repeating a comparison; the script protects existing files.
-
-The evaluator creates disposable SQLite databases and compares returned rows. It preserves duplicates and checks ordering when requested. Invalid or unsupported SQL counts as a failure.
-
-Use development questions to choose training settings or checkpoints. Reserve a separate set of new questions for the final comparison. The project's recorded twelve-question test has already been inspected, so rerunning it does not make it a new, untouched test.
-
-[TRAINING_EXPERIMENTS.md](TRAINING_EXPERIMENTS.md) explains how we selected v3. [EXECUTION_EVALUATION.md](EXECUTION_EVALUATION.md) explains the SQLite checks and execution restrictions.
-
-## Set up another checkout
-
-The current Dev checkout is ready to use. For another checkout, you need an Apple silicon Mac and `uv`.
-
-From the project folder, run:
-
-```bash
+git clone https://github.com/khnguyenn/sql-finetune-mlx.git
+cd sql-finetune-mlx
 uv sync --locked
 uv run python -c 'import mlx.core as mx; print(mx.default_device()); print(mx.metal.is_available())'
 ```
 
-`uv` creates `.venv/` using Python 3.12 and the dependency versions in `uv.lock`. On this Mac, the GPU check returns `Device(gpu, 0)` and `True`. The setup was verified on an Apple M4 with 16 GB memory.
+For an existing checkout, start at `uv sync --locked`. The GPU check should report a GPU device and `True`. Run model jobs one at a time on the 16 GB reference Mac.
 
-Git includes the source and configuration files. It excludes:
+| Asset | Existing prepared checkout | Fresh clone |
+| --- | --- | --- |
+| Source, configs, fixtures, documentation | Available | Included in Git |
+| Generated v1/v2/v3 data | Available locally | Generate the version needed |
+| Saved v1/v2/v3 adapters | Available locally; v3 selected | Copy a saved adapter or train a new one |
+| Raw experiment reports | Available locally | Generate new reports; recorded tables remain in docs |
+| Qwen model weights | Both 0.5B and 3B cached on the reference Mac | Downloaded from Hugging Face on first use |
 
-- `data/`: generated training data.
-- `adapters/`: learned adapter files.
-- `results/`: local experiment reports.
-- `.venv/`: the local Python environment.
+Base model weights live in the Hugging Face cache, normally `~/.cache/huggingface/hub`, rather than `adapters/`. The 0.5B weights are approximately 1 GB; the 3B download is approximately 6.17 GB. Each selected LoRA adapter is approximately 5.61 MiB and requires its matching original model.
 
-The saved artifacts were copied into this Dev checkout. Another clone must copy them from an existing checkout or generate data and train its own adapter. The original model is downloaded from Hugging Face when needed and cached outside the repository.
+## Run or reuse a model
 
-Private repository: [khnguyenn/sql-finetune-mlx](https://github.com/khnguyenn/sql-finetune-mlx).
+### Original model: no training data or adapter required
 
-## Where to look in the code
+```bash
+uv run python -m sql_finetune.ask \
+  --schema 'CREATE TABLE products (name TEXT, price REAL);' \
+  --question 'What is the highest product price?'
+```
 
-| File | Responsibility |
+Expected SQL: `SELECT MAX(price) FROM products`. The first call downloads the original 0.5B checkpoint if it is not cached.
+
+### Reuse the selected v3 adapter
+
+Requires `adapters/sql-v3/adapter_config.json` and `adapters/sql-v3/adapters.safetensors` from the prepared checkout.
+
+```bash
+uv run python -m sql_finetune.ask --adapter adapters/sql-v3 \
+  --schema 'CREATE TABLE products (name TEXT, price REAL);' \
+  --question 'What is the highest product price?'
+```
+
+This loads the original model plus learned LoRA weights. It does not start or resume training. A clean clone without these local files can use the original model immediately or create a new adapter with the next section.
+
+### Try the larger model or retrieval baseline
+
+These commands generate and grade one existing comparison question, then save the SQL and fixture outcomes. Choose unused report filenames.
+
+```bash
+# Larger model, no extra project training.
+uv run python -m sql_finetune.evaluate_execution \
+  --model Qwen/Qwen2.5-3B-Instruct \
+  --fixtures fixtures/execution_holdout_v3.json --case department-points \
+  --out results/try-3b-01.json
+
+# Original 0.5B model with three retrieved examples; requires v3 training data.
+uv run python -m sql_finetune.evaluate_execution \
+  --retrieval-corpus data/v3/train.jsonl --top-k 3 \
+  --fixtures fixtures/execution_holdout_v3.json --case department-points \
+  --out results/try-rag-01.json
+```
+
+These instruction checkpoints were already trained by their publisher; “no extra training” means no additional training by this project. RAG changes the prompt, not the model weights. The evaluator's primary score requires raw SQL, so a correct query wrapped in Markdown still fails that strict response contract.
+
+## Train a new adapter
+
+### 1. Prepare v3 data, or reuse the existing dataset
+
+Only generate it when `data/v3/` is absent:
+
+```bash
+mkdir -p data
+uv run python -m sql_finetune.prepare_curriculum --version 3
+```
+
+The generator creates 720 training and 120 validation conversations, checks their SQL against independent expected answers, checks evaluation-table separation and enforces the 512-token limit. It refuses to overwrite an existing version.
+
+### 2. Start a fresh run in an unused adapter directory
+
+```bash
+uv run mlx_lm.lora --config configs/train-v3.yaml \
+  --adapter-path adapters/sql-run-01
+```
+
+`--adapter-path` is the training output directory here. Choose an unused name to preserve the selected adapter and earlier runs. This command starts a fresh adapter from the original model; it does not continue v3 merely because `adapters/sql-v3/` exists.
+
+```mermaid
+flowchart LR
+    Lessons["Schema + question + target SQL"] --> Tokens["Tokenize; mask prompt loss"]
+    Tokens --> Forward["Frozen Qwen 0.5B + LoRA"]
+    Forward --> Loss["Next-token loss on target SQL"]
+    Loss --> Update["Adam updates LoRA parameters"]
+    Update --> Save["Validation + saved checkpoints"]
+    Save --> Select["Execution evaluation on development sets"]
+    Select --> Reuse["Selected adapter for inference"]
+```
+
+| V3 setting | Value |
 | --- | --- |
-| `common.py` | Defines the shared model ID and prompt |
-| `ask.py` | Generates SQL for one question |
-| `prepare_curriculum.py` | Builds and checks training examples |
-| `train-v3.yaml` | Controls the selected training recipe |
-| `evaluate_execution.py` | Connects model generation to result checking |
-| `retrieval.py` | Retrieves training examples with BM25 and adds them to the prompt |
-| `compare_results.py` | Separates strict execution scores from code-fence-only cleanup |
-| `execution.py` | Runs restricted SQL and compares returned rows |
-| `execution_cases.json` | The original eight development questions |
-| `execution_holdout.json` | Sixteen questions first used to evaluate v2 |
-| `execution_holdout_v3.json` | Twelve questions used for the recorded v3 comparison |
+| Training steps / batch size | 300 / 1; less than a full pass through 720 examples |
+| Learning rate | 0.00001 |
+| Adapted layers / rank / scale | Last 8 supported layers / 8 / 16 |
+| Maximum sequence length | 512 tokens |
+| Prompt loss masking / gradient checkpointing | Enabled / enabled |
+| Validation / checkpoint interval | Every 100 updates; 20 validation batches |
 
-Start by reading `ask.py`, then `common.py`. When those make sense, read `train-v3.yaml` and `prepare_curriculum.py`.
+The original weights stay frozen. Training saves adapter weights, its configuration and intermediate snapshots; it does not save a standalone replacement for Qwen. Training optimizes SQL answer-token prediction, not executed database results, so lower loss alone does not establish better queries.
 
-## Common questions
+### 3. Use and evaluate the new adapter
 
-**Do I need to retrain before using the model?**
+```bash
+uv run python -m sql_finetune.ask --adapter adapters/sql-run-01
 
-No. This checkout already contains `adapters/sql-v3`.
+uv run python -m sql_finetune.evaluate_execution \
+  --out results/original-dev-01.json
+uv run python -m sql_finetune.evaluate_execution \
+  --adapter adapters/sql-run-01 --out results/sql-run-01-dev.json
+```
 
-**Why did a previous fine-tuned version get worse?**
+Compare `correct_cases`, generated SQL and failed fixtures in the reports. The default suite is the original eight development questions; use `--fixtures fixtures/execution_holdout.json` for the additional sixteen opened questions. The recorded v3 checkpoint was selected on their combined 24 cases. Use development data to choose checkpoints, and define a new independent test before making a new generalization claim.
 
-Training changes behaviour, but improvement must be measured. Our first adapter regressed; clearer examples, more varied wording and smaller updates helped the later recipe. See [the experiment history](TRAINING_EXPERIMENTS.md).
+## Repository layout and validation
 
-**Why is there a PyTorch warning?**
+```text
+sql_finetune/   Python modules: generation, data preparation, retrieval, grading
+configs/       V1, v2 and v3 training recipes
+fixtures/      Committed questions, schemas, database rows and expected results
+tests/         Data-boundary, SQL-execution, retrieval and report regression checks
+docs/          Architecture, data details and experiment evidence
+data/          Local generated conversations and metadata; ignored by Git
+adapters/      Local LoRA weights and checkpoints; ignored by Git
+results/       Local predictions, scores, selection records and logs; ignored by Git
+```
 
-This project uses Transformers for tokenization and MLX for model computation. The warning does not require installing PyTorch.
+```bash
+uv run python -m unittest discover -s tests
+```
 
-**What if a dataset or report already exists?**
+Tests validate data separation, independently calculated training targets, SQL execution restrictions, retrieval and strict-versus-formatting scores without loading a model. Python modules are run with `python -m sql_finetune.<module>` from the repository root. There is no QTMS dependency or validation wrapper in this project.
 
-Reuse the dataset and choose a new report filename. Use a different adapter directory for a new training run.
+## References
 
-**How do I check code changes?**
-
-Run `uv run python -m unittest discover` to check the data split, curriculum, execution restrictions, retrieval and formatting diagnostic. These are small local tests and do not load or train a model.
-
-## Data and references
-
-The first experiment used [SQL Create Context](https://huggingface.co/datasets/b-mc2/sql-create-context), licensed CC BY 4.0, at revision `9d80a6a118b838d9defc3798d659a54a2ac2ff37`. The improved curriculum is rule-generated in this project. The original public-dataset scripts remain available as `prepare_data.py`, `train.yaml` and `evaluate.py`.
-
-References: [MLX-LM](https://github.com/ml-explore/mlx-lm), [LoRA training guide](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/LORA.md), [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct).
+- [MLX-LM](https://github.com/ml-explore/mlx-lm) and [LoRA training documentation](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/LORA.md)
+- [Qwen2.5-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct) and [Qwen2.5-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct)
+- [SQL Create Context](https://huggingface.co/datasets/b-mc2/sql-create-context), CC BY 4.0; pinned dataset revision in [the data reference](docs/data.md)

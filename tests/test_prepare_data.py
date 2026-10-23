@@ -1,7 +1,7 @@
 """Check the split boundary that makes the experiment meaningful."""
 import unittest
 
-from prepare_data import split_by_table
+from sql_finetune.prepare_data import split_by_table
 
 
 class SplitTests(unittest.TestCase):

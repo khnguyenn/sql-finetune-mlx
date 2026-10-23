@@ -6,9 +6,9 @@ from pathlib import Path
 from importlib.metadata import version
 import time
 
-from common import MODEL, messages
-from execution import grade_query
-from retrieval import ExampleRetriever, retrieval_messages
+from .common import FIXTURES_DIR, MODEL
+from .execution import grade_query
+from .retrieval import ExampleRetriever, retrieval_messages
 
 
 def main():
@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--adapter")
     parser.add_argument("--retrieval-corpus", type=Path, help="Trusted training JSONL only; never test answers")
     parser.add_argument("--top-k", type=int, default=3)
-    parser.add_argument("--fixtures", type=Path, default=Path(__file__).with_name("execution_cases.json"))
+    parser.add_argument("--fixtures", type=Path, default=FIXTURES_DIR / "execution_cases.json")
     parser.add_argument("--case")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()

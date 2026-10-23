@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from common import messages
-from retrieval import ExampleRetriever, retrieval_messages
+from sql_finetune.common import messages
+from sql_finetune.retrieval import ExampleRetriever, retrieval_messages
 
 
 class RetrievalTests(unittest.TestCase):

@@ -1,8 +1,24 @@
-# V3 adapter, retrieved examples and a larger model
+# Experiments
 
 Run date: 2026-10-23. All generations ran locally through MLX-LM on the same Mac.
 
-## Results
+## Training experiment history
+
+| Run | Data and recipe | Checkpoint selection | Recorded outcome |
+| --- | --- | --- | --- |
+| V1 | 1,000 public-data examples; 100 updates; learning rate 0.0001 | Saved 100-update adapter | Normalized validation SQL text matches increased 5/20 → 9/20, but execution regressed 6/8 → 4/8 |
+| V2 | 672 balanced generated examples; 600 updates; learning rate 0.00002 | Updates 100, 200, 400 and 600 all scored 7/8 on development; earliest tie selected update 100 | Original and selected adapter tied 14/16 on the then-new v2 set |
+| V3 | 720 generated examples with more entity-count wording and literal dates; 300 updates; learning rate 0.00001 | Updates 100/200 scored 23/24; update 300 scored 24/24 on opened development; selection saved before final evaluation | Original 7/12 versus selected adapter 12/12 on the then-new v3 set |
+
+Recipes: [v1](../configs/train-v1.yaml), [v2](../configs/train-v2.yaml), [v3](../configs/train-v3.yaml). V2/v3 share batch size 1, eight adapted layers, rank 8, scale 16 and 512-token sequences. Dataset counts and family coverage are in [data](data.md).
+
+V1 improved text matching while regressing on unique-bike counting, grouped sales, status spelling and ordering. For bike IDs `bike-a, bike-a, bike-b`, the original `COUNT(DISTINCT bike_id)` returned 2; the adapter's `COUNT(*)` returned 3. The available training labels included 23 `COUNT(*)`, 104 other non-DISTINCT counts and only 2 distinct counts, with some ambiguous reference labels. Imbalance is a plausible contributor, not a proven causal explanation. The reported initial/final validation token losses were 1.282/0.169; those losses did not establish result correctness.
+
+V2 introduced balanced, independently execution-checked targets and smaller updates. It corrected ascending ordering but regressed on a distinct-count paraphrase in the v2 set, so the 14/16 tie was retained. V3 treated the opened 8+16 questions as development, added entity-based counting paraphrases and the local literal-text date convention, and selected its checkpoint before scoring the separate twelve questions. Several training choices changed together; these runs do not isolate one change's causal effect.
+
+Historical evidence remains under `results/`: `before-valid.json`, `after-valid.json`, `unique-bikes-fixture.json`, `execution-before-v1.json`, `execution-after-v1.json`, `v2/selection.json`, `v2/holdout-*.json`, `v3/selection.json` and `v3/holdout-*.json`. The reserved 100-example public-data test split remains unscored; it is separate from the generated v3 curriculum.
+
+## Four-way comparison
 
 V3 passed **12/12**, the larger original model **11/12**, the original model with retrieved examples **10/12 after code-fence-only cleanup**, and the original 0.5B model **7/12**.
 
@@ -87,7 +103,7 @@ The corpus has no exact question text or table-name overlap with these twelve ca
 
 ## Evaluation rules and evidence
 
-- Fixed questions: `execution_holdout_v3.json`, twelve questions with three fixture databases each.
+- Fixed questions: `fixtures/execution_holdout_v3.json`, twelve questions with three fixture databases each.
 - Fixture SHA256: `8b476283687a05cba94c7d781851552a1e08f059ba1feebcb1f9d96d8c148db6`.
 - Corpus SHA256: `d9f99415b9040a180ed5eb33de5505493bcbd474e6dc26fee7fbb3a781e897a1`.
 - Greedy generation: temperature 0, seed 42, at most 128 generated tokens. One generation per question, no retries or SQL repairs.
@@ -104,14 +120,14 @@ Local files under `results/comparison-v3-rag-3b/`:
 - `original.json`, `v3.json`, `rag.json`, `larger.json`: raw generations, exact prompts, retrieved examples, model revision and fixture outcomes.
 - `comparison.json`: strict scores and the separate formatting diagnostic.
 
-Runtime artifacts remain ignored by Git. This document preserves the result tables and SQL in the private repository.
+Runtime artifacts remain ignored by Git. This document preserves the result tables and SQL in the private repository. Paths and source hashes inside historical reports/plan files describe the original layout at run time and are preserved verbatim; the commands below use the current package layout.
 
 ## Reproduce the comparison
 
-Use the existing local v3 adapter and training corpus, or generate the data and train an adapter first. These runtime files are not included in a clean clone. Run the following commands sequentially; no QTMS validation wrapper is needed for this project.
+Use the existing local v3 adapter and training corpus, or generate the data and train an adapter first. These runtime files are not included in a clean clone. Run the following commands sequentially.
 
 ```bash
-cd /Users/kianguyen/Dev/sql-finetune-mlx
+# Run from the repository root.
 uv sync --locked
 
 # Choose a new directory to preserve earlier reports.
@@ -121,12 +137,12 @@ mkdir "$comparison_out"
 small_revision=7ae557604adf67be50417f59c2c2f167def9a775
 large_revision=aa8e72537993ba99e69dfaafa59ed015b17504d1
 
-uv run python evaluate_execution.py --revision "$small_revision" --fixtures execution_holdout_v3.json --out "$comparison_out/original.json"
-uv run python evaluate_execution.py --revision "$small_revision" --adapter adapters/sql-v3 --fixtures execution_holdout_v3.json --out "$comparison_out/v3.json"
-uv run python evaluate_execution.py --revision "$small_revision" --retrieval-corpus data/v3/train.jsonl --top-k 3 --fixtures execution_holdout_v3.json --out "$comparison_out/rag.json"
-uv run python evaluate_execution.py --model Qwen/Qwen2.5-3B-Instruct --revision "$large_revision" --fixtures execution_holdout_v3.json --out "$comparison_out/larger.json"
+uv run python -m sql_finetune.evaluate_execution --revision "$small_revision" --fixtures fixtures/execution_holdout_v3.json --out "$comparison_out/original.json"
+uv run python -m sql_finetune.evaluate_execution --revision "$small_revision" --adapter adapters/sql-v3 --fixtures fixtures/execution_holdout_v3.json --out "$comparison_out/v3.json"
+uv run python -m sql_finetune.evaluate_execution --revision "$small_revision" --retrieval-corpus data/v3/train.jsonl --top-k 3 --fixtures fixtures/execution_holdout_v3.json --out "$comparison_out/rag.json"
+uv run python -m sql_finetune.evaluate_execution --model Qwen/Qwen2.5-3B-Instruct --revision "$large_revision" --fixtures fixtures/execution_holdout_v3.json --out "$comparison_out/larger.json"
 
-uv run python compare_results.py --fixtures execution_holdout_v3.json --reports "$comparison_out/original.json" "$comparison_out/v3.json" "$comparison_out/rag.json" "$comparison_out/larger.json" --out "$comparison_out/comparison.json"
+uv run python -m sql_finetune.compare_results --fixtures fixtures/execution_holdout_v3.json --reports "$comparison_out/original.json" "$comparison_out/v3.json" "$comparison_out/rag.json" "$comparison_out/larger.json" --out "$comparison_out/comparison.json"
 ```
 
 `evaluate_execution.py` generates answers and grades raw responses. `compare_results.py` regrades saved responses without loading a model and keeps the formatting diagnostic separate. Both refuse to overwrite an existing report.

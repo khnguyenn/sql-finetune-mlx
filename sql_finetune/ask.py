@@ -5,7 +5,7 @@ import mlx.core as mx
 from mlx_lm import generate, load
 from mlx_lm.sample_utils import make_sampler
 
-from common import MODEL, messages
+from .common import MODEL, messages
 
 
 def main():

@@ -5,8 +5,8 @@ import random
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from common import MODEL, messages
-from execution import grade_query
+from .common import FIXTURES_DIR, MODEL, messages
+from .execution import grade_query
 
 def expected_rows(family, rows, threshold, tag):
     numbers = [row[1] for row in rows if row[1] is not None]
@@ -119,7 +119,7 @@ def main():
     evaluation_files = ["execution_cases.json", "execution_holdout.json"]
     if version == 3:
         evaluation_files.append("execution_holdout_v3.json")
-    evaluations = [case for filename in evaluation_files for case in json.loads(Path(filename).read_text())]
+    evaluations = [case for filename in evaluation_files for case in json.loads((FIXTURES_DIR / filename).read_text())]
     eval_tables = {case["table"] for case in evaluations}
     output_rows = {}
     for split, examples in splits.items():
@@ -139,7 +139,7 @@ def main():
         "recipe": f"balanced-rule-generated-v{version}", "seed": 42,
         "splits": {split: len(rows) for split, rows in output_rows.items()},
         "train_families": dict(Counter(row["family"] for row in output_rows["train"])),
-        "holdout_sha256": hashlib.sha256(Path(evaluation_files[-1]).read_bytes()).hexdigest(),
+        "holdout_sha256": hashlib.sha256((FIXTURES_DIR / evaluation_files[-1]).read_bytes()).hexdigest(),
         "target_validation": "Executed against independently computed Python answers, including duplicates, NULLs and empty tables.",
     }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")

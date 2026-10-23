@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from compare_results import compare_reports, sql_without_fence
+from sql_finetune.compare_results import compare_reports, sql_without_fence
 
 
 class FormattingTests(unittest.TestCase):

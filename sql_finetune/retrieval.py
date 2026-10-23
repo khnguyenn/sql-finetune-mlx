@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 import re
 
-from common import messages
+from .common import messages
 
 
 def tokens(text):

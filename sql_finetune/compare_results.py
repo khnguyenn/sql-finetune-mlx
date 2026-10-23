@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 
-from execution import grade_query
+from .execution import grade_query
 
 
 def sql_without_fence(text):

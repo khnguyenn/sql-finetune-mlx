@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from common import MODEL, messages
+from .common import MODEL, messages
 
 DATASET = "b-mc2/sql-create-context"
 REVISION = "9d80a6a118b838d9defc3798d659a54a2ac2ff37"

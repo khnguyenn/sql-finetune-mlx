@@ -1,9 +1,9 @@
 """Observable query correctness and the limits around executing model output."""
 import unittest
 import json
-from pathlib import Path
+from sql_finetune.common import FIXTURES_DIR
 
-from execution import QueryError, grade_query, run_query
+from sql_finetune.execution import QueryError, grade_query, run_query
 
 
 def bikes_case():
@@ -104,7 +104,7 @@ class ExecutionTests(unittest.TestCase):
             run_query(bikes_case(), [], query)
 
     def test_curated_reference_queries_match_hand_written_answers(self):
-        cases = json.loads(Path(__file__).with_name("execution_cases.json").read_text())
+        cases = json.loads((FIXTURES_DIR / "execution_cases.json").read_text())
         for case in cases:
             with self.subTest(case=case["id"]):
                 self.assertTrue(grade_query(case, case["reference_sql"])["passed"])

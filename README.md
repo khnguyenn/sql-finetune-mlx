@@ -1,180 +1,197 @@
-# Learn SQL fine-tuning with MLX-LM
+# SQL fine-tuning on a Mac
 
-Goal: give a small model a database schema and an English question, then produce SQL. Compare the same model before and after training a LoRA adapter.
+Learn how to adapt a small language model to turn an English question and a database schema into SQL, then check whether the SQL returns the right results.
 
-This project uses Python 3.12, MLX-LM 0.32.2, Qwen2.5-0.5B-Instruct and a small subset of `b-mc2/sql-create-context`. It is intended for the Apple M4 Mac with 16 GB unified memory checked during this walkthrough.
+The project runs locally on Apple silicon using **MLX-LM** and **Qwen2.5-0.5B-Instruct**. LoRA trains a small adapter while keeping the original model weights frozen.
 
-The first run is complete; see [RESULTS.md](RESULTS.md) for measured results and examples. The numbered steps below record the workflow. When repeating it, skip existing data preparation and choose new result filenames and a new adapter directory to preserve the first experiment.
-
-For the later training rounds, see [the training experiments](TRAINING_EXPERIMENTS.md): balanced, execution-checked lessons, smaller learning rates, checkpoint selection and fresh evaluation sets. The generator supports `uv run python prepare_curriculum.py --version 2` and `--version 3`; each writes a separate data directory and preserves earlier datasets.
-
-The selected current recipe is `train-v3.yaml`, using version 3 curriculum data. Its local adapter is `adapters/sql-v3`; it passed 12/12 on the final new-question check versus the original model's 7/12. These are small synthetic SQL tests. The numbered steps below document the original experiment; use the training-experiments guide to reproduce the improved recipe.
-
-Private GitHub repository: [khnguyenn/sql-finetune-mlx](https://github.com/khnguyenn/sql-finetune-mlx). To set up another checkout, clone that repository and run `uv sync --locked` inside it. Downloaded data, adapters and local reports are excluded from Git and can be reproduced with the commands below.
-
-## 1. Enter the project
-
-```bash
-cd /Users/kianguyen/Documents/ChatGPT/personal/sql-finetune
+```text
+Schema + question -> original model + optional adapter -> SQL
+SQL + SQLite test rows -> actual results -> correctness check
 ```
 
-`cd` chooses the folder where commands run and generated files are saved. The project lives inside the existing personal workspace; no new remote repository is required.
+Private repository: [khnguyenn/sql-finetune-mlx](https://github.com/khnguyenn/sql-finetune-mlx).
 
-## 2. Install the isolated Python environment
+## Current local checkout
+
+```text
+/Users/kianguyen/Dev/sql-finetune-mlx
+```
+
+This checkout includes copies of the saved training data, adapters and experiment reports. The original checkout under Documents has been retained.
+
+Git tracks the source, configurations and evaluation definitions. It excludes `data/`, `adapters/`, `results/` and `.venv/`. Another Git clone will need to recreate the generated data and adapters, or copy them from an existing checkout.
+
+## Recorded results
+
+The selected adapter is **v3 at 300 updates**, saved locally in `adapters/sql-v3`.
+
+| Evaluation set | Original model | Selected v3 |
+| --- | ---: | ---: |
+| Original eight questions, used for development | 6/8 | 8/8 |
+| Opened sixteen questions, subsequently used for development | 14/16 | 16/16 |
+| Final twelve questions, not used for training or model selection | 7/12 | 12/12 |
+
+A question passes only if its SQL returns the correct results on all three test databases. These are small, synthetic, single-table SQL tests. The date questions include this project's convention of storing month-name dates as text.
+
+The first adapter performed worse than the original, and the next recipe tied on its new evaluation set. The full attempt history, selection rules and limits are recorded in [RESULTS.md](RESULTS.md) and [TRAINING_EXPERIMENTS.md](TRAINING_EXPERIMENTS.md).
+
+## 1. Set up Python
+
+Developed on an Apple M4 Mac with 16 GB memory. The project uses Python 3.12 and MLX-LM 0.32.2, with dependency versions recorded in `uv.lock`.
+
+You need `uv` installed. Run:
 
 ```bash
+cd /Users/kianguyen/Dev/sql-finetune-mlx
 uv sync --locked
 ```
 
-`uv` reads `pyproject.toml` and `uv.lock`, chooses Python 3.12 and installs the recorded dependencies into `.venv/`. This leaves the Mac's system Python packages alone. The first setup used `uv sync` to generate the lockfile.
+`uv` creates a Python environment in `.venv/` and installs the locked dependencies. Use `uv run` for project commands so they use that environment.
 
-MLX is the computation framework for Apple silicon. MLX-LM supplies model loading, text generation and fine-tuning. You do not have to clone its source repository to use its Python package.
-
-Verify that the GPU is available:
+Check the GPU:
 
 ```bash
 uv run python -c 'import mlx.core as mx; print(mx.default_device()); print(mx.metal.is_available())'
 ```
 
-Expected: a GPU device and `True`.
+Expected on this Mac: `Device(gpu, 0)` and `True`.
 
-Transformers may print a message that PyTorch is not installed. In this setup, Transformers supplies tokenization and MLX supplies model computation, so that message does not require installing PyTorch.
+Model commands below use `qtms-validate`, the shared work queue on this Mac. It prevents heavy jobs from overlapping; it is separate from MLX-LM. On another Mac without that local wrapper, run the `uv run ...` portion.
 
-## 3. Prepare the examples
+## 2. Try the original and trained models
 
-```bash
-uv run python prepare_data.py
-```
-
-This downloads the public dataset and tokenizer. It keeps short single-table SELECT examples, removes duplicate schema/question pairs, and excludes examples above 512 tokens. It makes three files:
-
-| File | Rows | Purpose |
-| --- | ---: | --- |
-| `data/train.jsonl` | 1,000 | Examples used to update adapter weights |
-| `data/valid.jsonl` | 100 | Examples for checking training and choosing settings |
-| `data/test.jsonl` | 100 | Reserved for the final comparison after choosing settings |
-
-All examples for a given table name stay in one split, reducing leakage from related tables. The script pins the dataset revision and uses seed 42. It refuses to replace an existing `data/` directory, so later experiments keep the same comparison data.
-
-Each JSONL line contains a conversation:
-
-```json
-{"messages":[{"role":"system","content":"Write a SQLite SELECT query for the given schema and question. Return only SQL, without explanations or Markdown."},{"role":"user","content":"Schema:\nCREATE TABLE employees (name TEXT, salary INTEGER);\n\nQuestion:\nHow many employees earn more than 80000?"},{"role":"assistant","content":"SELECT COUNT(*) FROM employees WHERE salary > 80000;"}]}
-```
-
-The system message describes the task, the user message supplies the schema and question, and the assistant message supplies the correct SQL. The tokenizer converts those messages into the token sequence consumed by the model.
-
-The script also saves table metadata for auditing splits. MLX-LM trains on `messages`; the extra `table` field is not part of the model's prompt.
-
-## 4. Try the original model
-
-Run model work through the Mac's shared queue so it does not overlap heavy work in another project:
+Original model:
 
 ```bash
 ~/.local/bin/qtms-validate uv run python ask.py
 ```
 
-The first invocation downloads roughly 1 GB of model weights to the Hugging Face cache. Later commands reuse the cache. This is inference only: the original model generates SQL without learning from this request.
+Same model with the saved v3 adapter:
 
-The default example asks how many employees earn more than 80,000. A correct query is:
+```bash
+~/.local/bin/qtms-validate uv run python ask.py --adapter adapters/sql-v3
+```
+
+Both receive the same schema and question. Loading the adapter changes the model's behaviour; generating an answer does not train it.
+
+The default question asks how many employees earn more than 80,000. A correct query is:
 
 ```sql
 SELECT COUNT(*) FROM employees WHERE salary > 80000;
 ```
 
-Try a different input:
+Try your own schema and question:
 
 ```bash
-~/.local/bin/qtms-validate uv run python ask.py \
-  --schema 'CREATE TABLE products (name TEXT, price REAL);' \
-  --question 'What is the highest product price?'
+~/.local/bin/qtms-validate uv run python ask.py --adapter adapters/sql-v3 --schema 'CREATE TABLE products (name TEXT, price REAL);' --question 'What is the highest product price?'
 ```
 
-## 5. Record a baseline
+The first model use downloads about 1 GB of weights to the shared Hugging Face cache. This Mac already has that cache; changing the checkout does not require another copy of the base model.
+
+## 3. Understand the training data
+
+The improved recipe uses **720 training examples** and **120 validation examples**, balanced across 15 SQL task types. These include row counts, non-null counts, distinct counts, filters, aggregates, grouping, ordering and the local date convention.
+
+Each example pairs a schema and question with correct SQL:
+
+```text
+Schema:   CREATE TABLE trip (bike_id TEXT);
+Question: How many different bikes appear in the trip records?
+Target:   SELECT COUNT(DISTINCT bike_id) FROM trip;
+```
+
+The generator checks targets on databases containing duplicates, NULLs, boundaries and empty tables, using independently computed expected answers. Evaluation tables and exact schema/question pairs are excluded from the training examples.
+
+The data already exists in this checkout. To generate it in a clean checkout:
 
 ```bash
-~/.local/bin/qtms-validate uv run python evaluate.py \
-  --split valid --limit 20 --out results/before-valid.json
+mkdir -p data
+uv run python prepare_curriculum.py --version 3
 ```
 
-This generates SQL for the first 20 fixed validation examples and saves inputs, expected SQL and actual output. Temperature 0 uses greedy decoding, making the comparison less dependent on sampling.
+This writes `data/v3/train.jsonl`, `valid.jsonl` and `metadata.json`. The script refuses to replace an existing `data/v3/`; reuse the existing data when comparing training settings.
 
-The initial metric is **normalised SQL text match**, not execution accuracy: it ignores repeated whitespace and a final semicolon, but equivalent SQL written differently can count as incorrect. Inspect saved predictions as well as the number. These 20 examples are a small learning experiment, not a reliable benchmark.
+## 4. Train another adapter
 
-## 6. Train a first LoRA adapter
+The v3 configuration uses:
 
-```bash
-~/.local/bin/qtms-validate uv run mlx_lm.lora --config train.yaml
-```
-
-MLX-LM loads the model, freezes its original parameters and trains small added matrices. It saves the result under `adapters/sql-v1/`; this adapter is loaded alongside the original model for generation.
-
-| Setting | Value | What it controls |
+| Setting | Value | Purpose |
 | --- | --- | --- |
-| `iters` | 100 | Number of training batches/updates in this starter run |
-| `batch_size` | 1 | One example per update; lower peak memory |
-| `learning_rate` | 0.0001 | Size of parameter updates |
-| `num_layers` | 8 | Add adapters to the last eight model blocks |
-| `lora_parameters.rank` | 8 | Size of the added trainable matrices |
-| `max_seq_length` | 512 | Maximum token sequence length |
-| `mask_prompt` | true | Compute training loss on the answer tokens |
-| `grad_checkpoint` | true | Recompute some intermediate values to reduce memory |
+| Learning rate | 0.00001 | Smaller updates than the first attempt |
+| Updates | 300 | Number of training steps |
+| Batch size | 1 | One example per update |
+| LoRA layers / rank | 8 / 8 | Size and placement of the trainable adapter |
+| Maximum sequence length | 512 tokens | Bound input size |
+| Prompt masking | Enabled | Train on answer tokens |
+| Gradient checkpointing | Enabled | Reduce peak memory |
 
-100 updates with batch size 1 is not a full pass through 1,000 examples. It is a small first run to check the workflow, not an optimized training recipe.
-
-Training loss measures how well the model predicts the training answers. Validation loss measures answer prediction on examples held out of training. Lower loss does not automatically mean the generated SQL is more often correct.
-
-For another experiment, use a new adapter path, for example `--adapter-path adapters/sql-v2`. Keep the dataset fixed. Do not overwrite the first run if you want to compare it later.
-
-## 7. Use the adapter and compare
+Choose an unused output directory to preserve the selected adapter:
 
 ```bash
-~/.local/bin/qtms-validate uv run python ask.py --adapter adapters/sql-v1
-
-~/.local/bin/qtms-validate uv run python evaluate.py \
-  --adapter adapters/sql-v1 \
-  --split valid --limit 20 --out results/after-valid.json
+~/.local/bin/qtms-validate uv run mlx_lm.lora --config train-v3.yaml --adapter-path adapters/sql-v3-repeat
 ```
 
-The prompt, base model and decoding are the same as before; the adapter is the changed part. Compare the saved `text_matches` counts and read the examples where predictions changed. The adapted model can improve, stay the same or get worse.
+This starts a fresh adapter from the original model. It saves weights and configuration under the chosen directory, with snapshots every 100 updates. Give each later run a new directory name.
 
-## 8. Make the evaluation stronger
+Training loss measures prediction of the labelled SQL tokens. Use execution results to decide whether the generated SQL actually improved. See [the experiment guide](TRAINING_EXPERIMENTS.md) for checkpoint selection.
 
-Change one setting at a time using validation results. Once settings are settled, run both models on the untouched test split, using distinct result filenames and the same `--limit 100`. Avoid selecting settings from test results.
+## 5. Compare query results
 
-Execution-based evaluation is now implemented. Follow [Check SQL by running it](EXECUTION_EVALUATION.md) for the full walkthrough and the measured comparison.
+Evaluate the original model:
 
 ```bash
-~/.local/bin/qtms-validate uv run python evaluate_execution.py \
-  --out results/execution-before-v1.json
-
-~/.local/bin/qtms-validate uv run python evaluate_execution.py \
-  --adapter adapters/sql-v1 --out results/execution-after-v1.json
+~/.local/bin/qtms-validate uv run python evaluate_execution.py --fixtures execution_holdout_v3.json --out results/manual-original.json
 ```
 
-The evaluator generates SQL for eight curated questions and runs each answer on three small SQLite databases. A question passes only when its returned rows match on all three fixtures. These are constructed regression examples, not the original dataset databases or a held-out benchmark. The first comparison scored 6/8 before and 4/8 with the adapter, exposing regressions hidden by the earlier text-match score.
+Evaluate the selected v3 adapter:
 
-## Files to understand
+```bash
+~/.local/bin/qtms-validate uv run python evaluate_execution.py --adapter adapters/sql-v3 --fixtures execution_holdout_v3.json --out results/manual-v3.json
+```
 
-| File | Job |
+Reports save generated SQL, expected and actual rows, errors and per-question results. Existing reports are protected: choose a new output filename when repeating a command. To evaluate your repeat training run, change `--adapter` to its output directory.
+
+The evaluator generates one query per question, then runs it on three disposable SQLite databases. It checks duplicates, NULLs, result shape and requested row ordering. Invalid or unsupported queries count as failures. Read-only restrictions and resource limits bound execution; details are in [EXECUTION_EVALUATION.md](EXECUTION_EVALUATION.md).
+
+These twelve questions were reserved during the recorded v3 experiment. They are now opened evidence: repeating them does not make them a fresh test. Further model selection should use development examples and reserve another fixed set for the final comparison.
+
+## Files to read
+
+| File | Responsibility |
 | --- | --- |
-| `common.py` | Defines the shared model ID and prompt |
-| `prepare_data.py` | Downloads, filters, splits and formats examples |
-| `ask.py` | Generates SQL for one schema/question pair |
-| `evaluate.py` | Saves predictions and the strict text-match score |
-| `execution_cases.json` | Curated questions, reference queries, database rows and expected answers |
-| `execution.py` | Executes restricted SQL and compares returned rows |
-| `evaluate_execution.py` | Compares the original and adapted models using execution results |
-| `test_execution.py` | Checks result semantics, the bike regression and execution restrictions |
-| `train.yaml` | Controls the MLX-LM training run |
-| `test_prepare_data.py` | Checks that table groups cannot cross split boundaries |
-| `uv.lock` | Records dependency versions |
+| `common.py` | Shared model ID and prompt |
+| `ask.py` | Generate SQL for one schema/question pair |
+| `prepare_curriculum.py` | Generate and check versioned training lessons |
+| `train-v3.yaml` | Selected training recipe |
+| `evaluate_execution.py` | Generate answers and score their execution results |
+| `execution.py` | Restricted SQLite execution and row comparison |
+| `execution_cases.json` | Original eight development questions |
+| `execution_holdout.json` | Sixteen questions initially reserved for v2 |
+| `execution_holdout_v3.json` | Twelve questions reserved for the recorded v3 comparison |
+| `TRAINING_EXPERIMENTS.md` | Recipes, checkpoint choices and reproduction commands |
+| `RESULTS.md` | Measured outcomes and evidence paths |
+| `prepare_data.py`, `train.yaml`, `evaluate.py` | Original public-dataset experiment and text-match evaluation |
 
-## Sources
+The original experiment uses [SQL Create Context](https://huggingface.co/datasets/b-mc2/sql-create-context), licensed CC BY 4.0, at revision `9d80a6a118b838d9defc3798d659a54a2ac2ff37`. The later curriculum is rule-generated within this project. Retain source attribution when sharing data-derived artifacts.
 
-- [MLX-LM repository](https://github.com/ml-explore/mlx-lm)
-- [MLX-LM training guide](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/LORA.md)
-- [Qwen2.5-0.5B-Instruct model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct)
-- [SQL Create Context dataset, CC BY 4.0](https://huggingface.co/datasets/b-mc2/sql-create-context)
+## Focused checks
 
-Dataset revision: `9d80a6a118b838d9defc3798d659a54a2ac2ff37`. The downloaded/generated dataset and model artifacts stay outside Git; retain source attribution when sharing data-derived artifacts.
+Run the check relevant to what you changed:
+
+```bash
+# Training-data balance, target correctness and split separation
+~/.local/bin/qtms-validate uv run python -m unittest test_curriculum.py
+
+# SQLite result comparison and execution restrictions
+~/.local/bin/qtms-validate uv run python -m unittest test_execution.py
+```
+
+## Common setup issues
+
+- **Adapter not found:** run commands from the project folder and check that `adapters/sql-v3/adapters.safetensors` exists. A Git clone alone does not include trained weights.
+- **Data already exists:** skip data generation and reuse that version for the next training run.
+- **Report already exists:** choose a new output filename.
+- **PyTorch not installed message:** this setup uses Transformers for tokenization and MLX for model computation; the message does not require installing PyTorch.
+- **Different SQL text, same result:** execution evaluation compares returned data; text-match evaluation can count equivalent queries as mismatches.
+
+References: [MLX-LM](https://github.com/ml-explore/mlx-lm), [LoRA training guide](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/LORA.md), [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct).

@@ -47,10 +47,10 @@ This measures result agreement on the supplied fixtures. It does not compare col
 From the project directory:
 
 ```bash
-~/.local/bin/qtms-validate uv run python evaluate_execution.py \
+uv run python evaluate_execution.py \
   --out results/execution-before-v1.json
 
-~/.local/bin/qtms-validate uv run python evaluate_execution.py \
+uv run python evaluate_execution.py \
   --adapter adapters/sql-v1 \
   --out results/execution-after-v1.json
 ```
@@ -60,7 +60,7 @@ These commands already ran. Choose new result filenames when repeating them, bec
 To check just the bike question:
 
 ```bash
-~/.local/bin/qtms-validate uv run python evaluate_execution.py \
+uv run python evaluate_execution.py \
   --adapter adapters/sql-v1 --case unique-bikes \
   --out results/bikes-execution-v1.json
 ```
@@ -114,7 +114,7 @@ The new evaluator makes that trade-off visible before another training experimen
 The focused check is:
 
 ```bash
-~/.local/bin/qtms-validate uv run python -m unittest test_execution.py
+uv run python -m unittest test_execution.py
 ```
 
 It covers the actual unique-bikes regression, duplicate preservation, row ordering, empty result shapes, bad reference fixtures, read-only restrictions, multiple statements, runaway queries, output limits, report serialization and SQL errors. An independent read-only review found that BLOB results could abort JSON report generation; the focused regression reproduced that issue before the fix, and all thirteen checks pass with the fix.

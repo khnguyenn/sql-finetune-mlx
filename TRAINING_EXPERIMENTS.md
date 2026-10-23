@@ -29,7 +29,7 @@ The holdout tests transfer to new wording, schemas and data within the same SQL 
 
 ```bash
 uv run python prepare_curriculum.py --version 2
-~/.local/bin/qtms-validate uv run mlx_lm.lora --config train-v2.yaml
+uv run mlx_lm.lora --config train-v2.yaml
 ```
 
 The data script refuses to replace `data/v2`. Adapters and generated data remain local and ignored by Git, while the generator, configuration and evaluation cases are committed.
@@ -50,7 +50,7 @@ V3 has 720 training examples and 120 validation examples, balanced across 15 fam
 
 ```bash
 uv run python prepare_curriculum.py --version 3
-~/.local/bin/qtms-validate uv run mlx_lm.lora --config train-v3.yaml
+uv run mlx_lm.lora --config train-v3.yaml
 ```
 
 Both v2 and v3 data versions and all attempted reports are retained. Multiple data and training changes occur together, so this experiment measures their combined effect rather than isolating a single cause.
@@ -87,16 +87,16 @@ As a descriptive breakdown, excluding the two application-specific date question
 The final `adapters/sql-v3/adapters.safetensors` is byte-identical to the selected 300-step checkpoint. The simple usage path is:
 
 ```bash
-~/.local/bin/qtms-validate uv run python ask.py --adapter adapters/sql-v3
+uv run python ask.py --adapter adapters/sql-v3
 ```
 
 To reproduce the fresh comparison after preparing/training v3:
 
 ```bash
-~/.local/bin/qtms-validate uv run python evaluate_execution.py \
+uv run python evaluate_execution.py \
   --fixtures execution_holdout_v3.json --out results/v3-original-repeat.json
 
-~/.local/bin/qtms-validate uv run python evaluate_execution.py \
+uv run python evaluate_execution.py \
   --adapter adapters/sql-v3 --fixtures execution_holdout_v3.json \
   --out results/v3-adapted-repeat.json
 ```

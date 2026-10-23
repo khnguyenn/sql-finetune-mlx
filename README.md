@@ -6,6 +6,8 @@ This project uses Python 3.12, MLX-LM 0.32.2, Qwen2.5-0.5B-Instruct and a small 
 
 The first run is complete; see [RESULTS.md](RESULTS.md) for measured results and examples. The numbered steps below record the workflow. When repeating it, skip existing data preparation and choose new result filenames and a new adapter directory to preserve the first experiment.
 
+Private GitHub repository: [khnguyenn/sql-finetune-mlx](https://github.com/khnguyenn/sql-finetune-mlx). To set up another checkout, clone that repository and run `uv sync --locked` inside it. Downloaded data, adapters and local reports are excluded from Git and can be reproduced with the commands below.
+
 ## 1. Enter the project
 
 ```bash
@@ -136,7 +138,17 @@ The prompt, base model and decoding are the same as before; the adapter is the c
 
 Change one setting at a time using validation results. Once settings are settled, run both models on the untouched test split, using distinct result filenames and the same `--limit 100`. Avoid selecting settings from test results.
 
-A useful next step is execution-based evaluation: construct small SQLite fixtures and compare generated query results with reference query results. This dataset contains schemas and SQL but not the original populated databases, so a text-match score alone cannot establish SQL correctness.
+Execution-based evaluation is now implemented. Follow [Check SQL by running it](EXECUTION_EVALUATION.md) for the full walkthrough and the measured comparison.
+
+```bash
+~/.local/bin/qtms-validate uv run python evaluate_execution.py \
+  --out results/execution-before-v1.json
+
+~/.local/bin/qtms-validate uv run python evaluate_execution.py \
+  --adapter adapters/sql-v1 --out results/execution-after-v1.json
+```
+
+The evaluator generates SQL for eight curated questions and runs each answer on three small SQLite databases. A question passes only when its returned rows match on all three fixtures. These are constructed regression examples, not the original dataset databases or a held-out benchmark. The first comparison scored 6/8 before and 4/8 with the adapter, exposing regressions hidden by the earlier text-match score.
 
 ## Files to understand
 
@@ -146,6 +158,10 @@ A useful next step is execution-based evaluation: construct small SQLite fixture
 | `prepare_data.py` | Downloads, filters, splits and formats examples |
 | `ask.py` | Generates SQL for one schema/question pair |
 | `evaluate.py` | Saves predictions and the strict text-match score |
+| `execution_cases.json` | Curated questions, reference queries, database rows and expected answers |
+| `execution.py` | Executes restricted SQL and compares returned rows |
+| `evaluate_execution.py` | Compares the original and adapted models using execution results |
+| `test_execution.py` | Checks result semantics, the bike regression and execution restrictions |
 | `train.yaml` | Controls the MLX-LM training run |
 | `test_prepare_data.py` | Checks that table groups cannot cross split boundaries |
 | `uv.lock` | Records dependency versions |

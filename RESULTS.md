@@ -67,4 +67,26 @@ Executed both on an illustrative local in-memory SQLite fixture with bike IDs `b
 - `adapters/sql-v1/adapter_config.json`: actual training settings
 - `adapters/sql-v1/adapters.safetensors`: trained adapter
 
-The test split has not been scored. A useful next lesson is to build execution-based checks and inspect data quality before choosing a second training configuration.
+The test split has not been scored.
+
+## Execution-based follow-up
+
+The existing model and `sql-v1` adapter were evaluated on eight curated questions with three constructed SQLite fixtures per question. A question passes only if every fixture returns the correct rows. Fixture definitions are committed in `execution_cases.json`; this is a diagnostic regression suite, not a held-out benchmark or the original populated dataset databases.
+
+| Question | Original | With adapter |
+| --- | --- | --- |
+| Unique bikes | Pass | Fail |
+| Employee count | Fail | Pass |
+| Maximum price | Pass | Pass |
+| Age filter | Pass | Pass |
+| Text date filter | Fail | Pass |
+| Completed-order total | Pass | Fail |
+| Grouped sales | Pass | Fail |
+| Price ordering | Pass | Fail |
+| **All-fixture passes** | **6/8** | **4/8** |
+
+Reports: `results/execution-before-v1.json` and `results/execution-after-v1.json`. Both record fixture hash `eae1740438eae4e3108558bf7f9308f77bd1c41d5a7d06cc3c57064966806b6e`. The focused evaluator regression checks passed.
+
+The bike answer passes the duplicate, NULL and empty fixtures before fine-tuning; with the adapter it passes only the empty fixture. The completed-order answer changes the stored status value from `completed` to `Completed`, losing qualifying rows. The grouped-sales and price-ordering answers become invalid SQL, and all their fixtures are scored as failures.
+
+The available training answers contain 23 `COUNT(*)` examples, 104 other non-DISTINCT count examples and 2 `COUNT(DISTINCT ...)` examples. This imbalance and ambiguous count labels are possible contributors to the bike regression, not established causes. Training optimized answer-token prediction rather than executed results. See [the walkthrough](EXECUTION_EVALUATION.md) for the mechanism and evidence limits.

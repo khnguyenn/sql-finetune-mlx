@@ -1,0 +1,106 @@
+[
+  {
+    "id": "unique-bikes",
+    "schema": "CREATE TABLE trip (bike_id VARCHAR)",
+    "table": "trip",
+    "question": "From the trip record, find the number of unique bikes.",
+    "reference_sql": "SELECT COUNT(DISTINCT bike_id) FROM trip",
+    "ordered": false,
+    "fixtures": [
+      {"name": "duplicate-bikes", "rows": [["bike-a"], ["bike-a"], ["bike-b"]], "expected": [[2]]},
+      {"name": "null-bike", "rows": [[null], ["bike-a"], ["bike-a"]], "expected": [[1]]},
+      {"name": "empty", "rows": [], "expected": [[0]]}
+    ]
+  },
+  {
+    "id": "employee-count",
+    "schema": "CREATE TABLE employees (name TEXT, salary INTEGER);",
+    "table": "employees",
+    "question": "How many employees earn more than 80000?",
+    "reference_sql": "SELECT COUNT(*) FROM employees WHERE salary > 80000",
+    "ordered": false,
+    "fixtures": [
+      {"name": "null-name-and-boundary", "rows": [[null, 90000], ["Ava", 100000], ["Ben", 80000], ["Cal", 70000]], "expected": [[2]]},
+      {"name": "nobody-qualifies", "rows": [["Ava", 80000], ["Ben", null]], "expected": [[0]]},
+      {"name": "empty", "rows": [], "expected": [[0]]}
+    ]
+  },
+  {
+    "id": "maximum-price",
+    "schema": "CREATE TABLE products (name TEXT, price REAL);",
+    "table": "products",
+    "question": "What is the highest product price?",
+    "reference_sql": "SELECT MAX(price) FROM products",
+    "ordered": false,
+    "fixtures": [
+      {"name": "unsorted-with-null", "rows": [["A", 10], ["B", 50], ["C", null], ["D", 20]], "expected": [[50]]},
+      {"name": "negative-prices", "rows": [["A", -10], ["B", -2]], "expected": [[-2]]},
+      {"name": "empty", "rows": [], "expected": [[null]]}
+    ]
+  },
+  {
+    "id": "age-filter",
+    "schema": "CREATE TABLE people (name TEXT, age INTEGER);",
+    "table": "people",
+    "question": "List the names of people older than 30.",
+    "reference_sql": "SELECT name FROM people WHERE age > 30",
+    "ordered": false,
+    "fixtures": [
+      {"name": "boundary-and-duplicates", "rows": [["Ava", 31], ["Ben", 30], ["Cal", 40], ["Ava", 35]], "expected": [["Ava"], ["Cal"], ["Ava"]]},
+      {"name": "nulls", "rows": [[null, 45], ["Ben", null]], "expected": [[null]]},
+      {"name": "empty", "rows": [], "expected": []}
+    ]
+  },
+  {
+    "id": "text-date-filter",
+    "schema": "CREATE TABLE table_2409041_6 (directed_by VARCHAR, original_air_date VARCHAR)",
+    "table": "table_2409041_6",
+    "question": "Who was the director for the episode airing on September 24, 1993?",
+    "reference_sql": "SELECT directed_by FROM table_2409041_6 WHERE original_air_date = 'September 24, 1993'",
+    "ordered": false,
+    "fixtures": [
+      {"name": "stored-date-format", "rows": [["Director A", "September 24, 1993"], ["Director B", "September 25, 1993"]], "expected": [["Director A"]]},
+      {"name": "iso-distractor", "rows": [["Director A", "September 24, 1993"], ["Director B", "1993-09-24"]], "expected": [["Director A"]]},
+      {"name": "empty", "rows": [], "expected": []}
+    ]
+  },
+  {
+    "id": "completed-order-total",
+    "schema": "CREATE TABLE orders (amount REAL, status TEXT);",
+    "table": "orders",
+    "question": "What is the total amount for completed orders?",
+    "reference_sql": "SELECT SUM(amount) FROM orders WHERE status = 'completed'",
+    "ordered": false,
+    "fixtures": [
+      {"name": "mixed-status-and-null", "rows": [[10, "completed"], [20, "completed"], [100, "cancelled"], [null, "completed"]], "expected": [[30]]},
+      {"name": "duplicate-amounts", "rows": [[10, "completed"], [10, "completed"]], "expected": [[20]]},
+      {"name": "empty", "rows": [], "expected": [[null]]}
+    ]
+  },
+  {
+    "id": "grouped-sales",
+    "schema": "CREATE TABLE sales (category TEXT, amount REAL);",
+    "table": "sales",
+    "question": "Show each category and its total sales amount.",
+    "reference_sql": "SELECT category, SUM(amount) FROM sales GROUP BY category",
+    "ordered": false,
+    "fixtures": [
+      {"name": "repeated-categories", "rows": [["B", 5], ["A", 10], ["A", 20], ["B", 15]], "expected": [["A", 30], ["B", 20]]},
+      {"name": "null-category-and-amount", "rows": [[null, 5], [null, 10], ["A", null]], "expected": [[null, 15], ["A", null]]},
+      {"name": "empty", "rows": [], "expected": []}
+    ]
+  },
+  {
+    "id": "price-ordering",
+    "schema": "CREATE TABLE products (name TEXT, price REAL);",
+    "table": "products",
+    "question": "List product names from highest to lowest price.",
+    "reference_sql": "SELECT name FROM products ORDER BY price DESC",
+    "ordered": true,
+    "fixtures": [
+      {"name": "unsorted-products", "rows": [["Cheap", 10], ["Expensive", 50], ["Medium", 20]], "expected": [["Expensive"], ["Medium"], ["Cheap"]]},
+      {"name": "negative-prices", "rows": [["A", -5], ["B", -1], ["C", -10]], "expected": [["B"], ["A"], ["C"]]},
+      {"name": "empty", "rows": [], "expected": []}
+    ]
+  }
+]

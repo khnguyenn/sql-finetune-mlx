@@ -9,18 +9,23 @@ from execution import grade_query
 
 
 def main():
-    source = Path(__file__).with_name("execution_cases.json")
-    cases = json.loads(source.read_text())
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter")
-    parser.add_argument("--case", choices=[case["id"] for case in cases])
+    parser.add_argument("--fixtures", type=Path, default=Path(__file__).with_name("execution_cases.json"))
+    parser.add_argument("--case")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
+    source = args.fixtures
+    cases = json.loads(source.read_text())
+    if not cases or len({case["id"] for case in cases}) != len(cases):
+        parser.error("Fixture file must contain cases with unique IDs")
     output = Path(args.out)
     if output.exists():
         parser.error(f"{output} exists; choose a new filename to preserve previous results")
     if args.case:
         cases = [case for case in cases if case["id"] == args.case]
+        if not cases:
+            parser.error("--case does not match a case in the fixture file")
     # Fail on a broken fixture before loading the model or reporting a score.
     for case in cases:
         grade_query(case, case["reference_sql"])

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "visitors", "table": "access_log", "schema": "CREATE TABLE access_log (visitor TEXT)",
+    "question": "How many distinct visitors appear in the access log?", "reference_sql": "SELECT COUNT(DISTINCT visitor) FROM access_log", "ordered": false,
+    "fixtures": [{"name":"repeated","rows":[["x"],["x"],["y"]],"expected":[[2]]},{"name":"missing","rows":[[null],["x"]],"expected":[[1]]},{"name":"empty","rows":[],"expected":[[0]]}]
+  },
+  {
+    "id": "filtered-serials", "table": "pulses", "schema": "CREATE TABLE pulses (serial TEXT, reading INTEGER)",
+    "question": "Count different serial numbers with reading above 10.", "reference_sql": "SELECT COUNT(DISTINCT serial) FROM pulses WHERE reading > 10", "ordered": false,
+    "fixtures": [{"name":"duplicates-boundary","rows":[["x",11],["x",12],["y",20],["z",10]],"expected":[[2]]},{"name":"missing","rows":[[null,20],["x",null],["y",11]],"expected":[[1]]},{"name":"empty","rows":[],"expected":[[0]]}]
+  },
+  {
+    "id": "parcel-count", "table": "parcels", "schema": "CREATE TABLE parcels (description TEXT, weight REAL)",
+    "question": "How many parcels weigh more than 5?", "reference_sql": "SELECT COUNT(*) FROM parcels WHERE weight > 5", "ordered": false,
+    "fixtures": [{"name":"missing-description","rows":[[null,8],["a",10],["b",5]],"expected":[[2]]},{"name":"none","rows":[["a",null],["b",4]],"expected":[[0]]},{"name":"empty","rows":[],"expected":[[0]]}]
+  },
+  {
+    "id": "register-count", "table": "register", "schema": "CREATE TABLE register (note TEXT)",
+    "question": "How many records are in the register?", "reference_sql": "SELECT COUNT(*) FROM register", "ordered": false,
+    "fixtures": [{"name":"missing-notes","rows":[["a"],[null],["a"]],"expected":[[3]]},{"name":"only-missing","rows":[[null]],"expected":[[1]]},{"name":"empty","rows":[],"expected":[[0]]}]
+  },
+  {
+    "id": "provided-emails", "table": "contacts", "schema": "CREATE TABLE contacts (email TEXT)",
+    "question": "How many contacts have a non-null email address?", "reference_sql": "SELECT COUNT(email) FROM contacts", "ordered": false,
+    "fixtures": [{"name":"mixed","rows":[["a@local"],[null],["a@local"]],"expected":[[2]]},{"name":"only-missing","rows":[[null]],"expected":[[0]]},{"name":"empty","rows":[],"expected":[[0]]}]
+  },
+  {
+    "id": "readers", "table": "borrowings", "schema": "CREATE TABLE borrowings (reader_code TEXT)",
+    "question": "How many different readers borrowed an item?", "reference_sql": "SELECT COUNT(DISTINCT reader_code) FROM borrowings", "ordered": false,
+    "fixtures": [{"name":"repeat-borrower","rows":[["r1"],["r1"],["r2"],["r3"]],"expected":[[3]]},{"name":"missing","rows":[[null],["r1"]],"expected":[[1]]},{"name":"empty","rows":[],"expected":[[0]]}]
+  },
+  {
+    "id": "paid-invoices", "table": "invoices", "schema": "CREATE TABLE invoices (value REAL, state TEXT)",
+    "question": "Find the total value for invoices with state 'paid'.", "reference_sql": "SELECT SUM(value) FROM invoices WHERE state = 'paid'", "ordered": false,
+    "fixtures": [{"name":"case-sensitive-state","rows":[[10,"paid"],[20,"paid"],[100,"Paid"]],"expected":[[30]]},{"name":"duplicates-nulls","rows":[[5,"paid"],[5,"paid"],[null,"paid"]],"expected":[[10]]},{"name":"empty","rows":[],"expected":[[null]]}]
+  },
+  {
+    "id": "peak-voltage", "table": "sensors", "schema": "CREATE TABLE sensors (voltage REAL)",
+    "question": "What is the highest voltage?", "reference_sql": "SELECT MAX(voltage) FROM sensors", "ordered": false,
+    "fixtures": [{"name":"unsorted","rows":[[2],[8],[3],[null]],"expected":[[8]]},{"name":"negative","rows":[[-5],[-2]],"expected":[[-2]]},{"name":"empty","rows":[],"expected":[[null]]}]
+  },
+  {
+    "id": "lowest-temperature", "table": "temperatures", "schema": "CREATE TABLE temperatures (value REAL)",
+    "question": "What is the lowest value in temperatures?", "reference_sql": "SELECT MIN(value) FROM temperatures", "ordered": false,
+    "fixtures": [{"name":"unsorted","rows":[[3],[-7],[1],[null]],"expected":[[-7]]},{"name":"positive","rows":[[5],[2]],"expected":[[2]]},{"name":"empty","rows":[],"expected":[[null]]}]
+  },
+  {
+    "id": "label-totals", "table": "metrics", "schema": "CREATE TABLE metrics (label TEXT, score REAL)",
+    "question": "Return each label and the total of its score.", "reference_sql": "SELECT label, SUM(score) FROM metrics GROUP BY label", "ordered": false,
+    "fixtures": [{"name":"repeated-labels","rows":[["b",5],["a",10],["a",20]],"expected":[["a",30],["b",5]]},{"name":"nulls","rows":[[null,4],[null,6],["a",null]],"expected":[[null,10],["a",null]]},{"name":"empty","rows":[],"expected":[]}]
+  },
+  {
+    "id": "event-counts", "table": "events", "schema": "CREATE TABLE events (kind TEXT, detail TEXT)",
+    "question": "Show each event kind and how many event rows belong to it.", "reference_sql": "SELECT kind, COUNT(*) FROM events GROUP BY kind", "ordered": false,
+    "fixtures": [{"name":"missing-detail","rows":[["a",null],["a","x"],["b","y"]],"expected":[["a",2],["b",1]]},{"name":"missing-kind","rows":[[null,"x"],[null,null]],"expected":[[null,2]]},{"name":"empty","rows":[],"expected":[]}]
+  },
+  {
+    "id": "descending-cost", "table": "inventory", "schema": "CREATE TABLE inventory (title TEXT, cost REAL)",
+    "question": "Return titles sorted by cost from largest to smallest.", "reference_sql": "SELECT title FROM inventory ORDER BY cost DESC", "ordered": true,
+    "fixtures": [{"name":"unsorted","rows":[["a",1],["b",9],["c",3]],"expected":[["b"],["c"],["a"]]},{"name":"negative","rows":[["a",-5],["b",-2]],"expected":[["b"],["a"]]},{"name":"empty","rows":[],"expected":[]}]
+  },
+  {
+    "id": "ascending-score", "table": "ranks", "schema": "CREATE TABLE ranks (player TEXT, score REAL)",
+    "question": "List player names from lowest score to highest.", "reference_sql": "SELECT player FROM ranks ORDER BY score ASC", "ordered": true,
+    "fixtures": [{"name":"unsorted","rows":[["a",8],["b",2],["c",5]],"expected":[["b"],["c"],["a"]]},{"name":"negative","rows":[["a",-3],["b",-7]],"expected":[["b"],["a"]]},{"name":"empty","rows":[],"expected":[]}]
+  },
+  {
+    "id": "literal-date", "table": "broadcasts", "schema": "CREATE TABLE broadcasts (host TEXT, aired TEXT)",
+    "question": "Which host aired on April 7, 2001?", "reference_sql": "SELECT host FROM broadcasts WHERE aired = 'April 7, 2001'", "ordered": false,
+    "fixtures": [{"name":"text-date","rows":[["A","April 7, 2001"],["B","April 8, 2001"]],"expected":[["A"]]},{"name":"iso-distractor","rows":[["A","April 7, 2001"],["B","2001-04-07"]],"expected":[["A"]]},{"name":"empty","rows":[],"expected":[]}]
+  },
+  {
+    "id": "average-mass", "table": "shipments", "schema": "CREATE TABLE shipments (mass REAL)",
+    "question": "What is the average mass of shipments?", "reference_sql": "SELECT AVG(mass) FROM shipments", "ordered": false,
+    "fixtures": [{"name":"ignore-missing","rows":[[10],[20],[null]],"expected":[[15]]},{"name":"negative","rows":[[-2],[2]],"expected":[[0]]},{"name":"empty","rows":[],"expected":[[null]]}]
+  },
+  {
+    "id": "pay-filter", "table": "staff", "schema": "CREATE TABLE staff (person TEXT, pay REAL)",
+    "question": "Give person values where pay exceeds 40.", "reference_sql": "SELECT person FROM staff WHERE pay > 40", "ordered": false,
+    "fixtures": [{"name":"boundary-duplicates","rows":[["a",50],["a",60],["b",40],["c",35]],"expected":[["a"],["a"]]},{"name":"nulls","rows":[[null,50],["b",null]],"expected":[[null]]},{"name":"empty","rows":[],"expected":[]}]
+  }
+]

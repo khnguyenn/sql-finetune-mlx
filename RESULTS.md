@@ -92,3 +92,19 @@ An independent read-only security review found a JSON reporting failure for BLOB
 The bike answer passes the duplicate, NULL and empty fixtures before fine-tuning; with the adapter it passes only the empty fixture. The completed-order answer changes the stored status value from `completed` to `Completed`, losing qualifying rows. The grouped-sales and price-ordering answers become invalid SQL, and all their fixtures are scored as failures.
 
 The available training answers contain 23 `COUNT(*)` examples, 104 other non-DISTINCT count examples and 2 `COUNT(DISTINCT ...)` examples. This imbalance and ambiguous count labels are possible contributors to the bike regression, not established causes. Training optimized answer-token prediction rather than executed results. See [the walkthrough](EXECUTION_EVALUATION.md) for the mechanism and evidence limits.
+
+## Improved training rounds
+
+V2 replaced the ambiguous sample with 672 balanced, execution-checked SQL lessons and reduced the learning rate to 0.00002. Its four candidate checkpoints all scored 7/8 on development. The selected checkpoint tied the original at 14/16 on a new set, correcting ascending order but regressing on a distinct-count paraphrase. That tie was retained in the record.
+
+V3 added entity-based counting paraphrases and the project's literal-text date convention, using 720 training examples across fifteen balanced task families and learning rate 0.00001. Updates 100 and 200 scored 23/24 on the now-opened development questions; update 300 scored 24/24 and was selected before any model evaluation on the final twelve questions.
+
+| Set | Original | V3 at update 300 |
+| --- | ---: | ---: |
+| Original development questions | 6/8 | 8/8 |
+| Opened v2 set, now development | 14/16 | 16/16 |
+| Newly fixed v3 holdout | 7/12 | 12/12 |
+
+The final set has three fixtures per question, and all must pass. Original and v3 reports use the same unchanged fixture hash `8b476283687a05cba94c7d781851552a1e08f059ba1feebcb1f9d96d8c148db6`. V3 fixed reversed ordering, missing grouping and the local text-date convention while preserving the original model's correct answers in that set. The test is small and synthetic, and tests the same task families as the curriculum with different schemas and wording; this does not establish broad SQL superiority.
+
+See [training experiments](TRAINING_EXPERIMENTS.md) for complete recipes, selection rules and reproduction commands. Full local reports are `results/v3/holdout-original.json` and `results/v3/holdout-v3.json`; checkpoint selection was saved first in `results/v3/selection.json`. The selected weights are also available at `adapters/sql-v3`.

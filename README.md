@@ -6,6 +6,10 @@ This project uses Python 3.12, MLX-LM 0.32.2, Qwen2.5-0.5B-Instruct and a small 
 
 The first run is complete; see [RESULTS.md](RESULTS.md) for measured results and examples. The numbered steps below record the workflow. When repeating it, skip existing data preparation and choose new result filenames and a new adapter directory to preserve the first experiment.
 
+For the later training rounds, see [the training experiments](TRAINING_EXPERIMENTS.md): balanced, execution-checked lessons, smaller learning rates, checkpoint selection and fresh evaluation sets. The generator supports `uv run python prepare_curriculum.py --version 2` and `--version 3`; each writes a separate data directory and preserves earlier datasets.
+
+The selected current recipe is `train-v3.yaml`, using version 3 curriculum data. Its local adapter is `adapters/sql-v3`; it passed 12/12 on the final new-question check versus the original model's 7/12. These are small synthetic SQL tests. The numbered steps below document the original experiment; use the training-experiments guide to reproduce the improved recipe.
+
 Private GitHub repository: [khnguyenn/sql-finetune-mlx](https://github.com/khnguyenn/sql-finetune-mlx). To set up another checkout, clone that repository and run `uv sync --locked` inside it. Downloaded data, adapters and local reports are excluded from Git and can be reproduced with the commands below.
 
 ## 1. Enter the project

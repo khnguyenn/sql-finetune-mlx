@@ -1,0 +1,21 @@
+model: Qwen/Qwen2.5-0.5B-Instruct
+data: data/v2
+train: true
+fine_tune_type: lora
+adapter_path: adapters/sql-v2
+seed: 42
+batch_size: 1
+iters: 600
+learning_rate: 0.00002
+num_layers: 8
+max_seq_length: 512
+mask_prompt: true
+grad_checkpoint: true
+steps_per_report: 50
+steps_per_eval: 100
+val_batches: 20
+save_every: 100
+lora_parameters:
+  rank: 8
+  scale: 16.0
+  dropout: 0.0

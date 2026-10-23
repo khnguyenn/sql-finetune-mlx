@@ -1,4 +1,5 @@
 """Execute SELECT queries on small, curated SQLite fixtures and compare results."""
+import json
 import re
 import sqlite3
 import time
@@ -52,10 +53,19 @@ def run_query(case, rows, query):
         connection.set_progress_handler(interrupted, 1_000)
         # execute() accepts one statement, unlike executescript().
         cursor = connection.execute(query)
-        result = cursor.fetchmany(1_001)
-        if len(result) > 1_000:
-            raise QueryError("Query exceeded the 1000-row limit")
-        return {"rows": [list(row) for row in result], "columns": len(cursor.description)}
+        result, payload_bytes = [], 0
+        for row in cursor:
+            if len(result) >= 1_000:
+                raise QueryError("Query exceeded the 1000-row limit")
+            try:
+                encoded = json.dumps(row, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            except (TypeError, ValueError) as error:
+                raise QueryError("Query returned unsupported values; expected finite JSON scalars") from error
+            payload_bytes += len(encoded)
+            if payload_bytes > 65_536:
+                raise QueryError("Query exceeded the 65536-byte result limit")
+            result.append(list(row))
+        return {"rows": result, "columns": len(cursor.description)}
     except sqlite3.Error as error:
         raise QueryError(str(error)) from error
     finally:

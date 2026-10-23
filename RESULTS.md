@@ -87,6 +87,8 @@ The existing model and `sql-v1` adapter were evaluated on eight curated question
 
 Reports: `results/execution-before-v1.json` and `results/execution-after-v1.json`. Both record fixture hash `eae1740438eae4e3108558bf7f9308f77bd1c41d5a7d06cc3c57064966806b6e`. The focused evaluator regression checks passed.
 
+An independent read-only security review found a JSON reporting failure for BLOB query results. Unsupported result types are now counted as query failures, and streamed result payloads are capped at 65,536 encoded bytes per query. All thirteen focused evaluator checks pass, including regressions for report serialization and payload limits.
+
 The bike answer passes the duplicate, NULL and empty fixtures before fine-tuning; with the adapter it passes only the empty fixture. The completed-order answer changes the stored status value from `completed` to `Completed`, losing qualifying rows. The grouped-sales and price-ordering answers become invalid SQL, and all their fixtures are scored as failures.
 
 The available training answers contain 23 `COUNT(*)` examples, 104 other non-DISTINCT count examples and 2 `COUNT(DISTINCT ...)` examples. This imbalance and ambiguous count labels are possible contributors to the bike regression, not established causes. Training optimized answer-token prediction rather than executed results. See [the walkthrough](EXECUTION_EVALUATION.md) for the mechanism and evidence limits.

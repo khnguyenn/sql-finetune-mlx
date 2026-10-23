@@ -26,7 +26,7 @@ The model generates a single query for each question using greedy decoding. That
 
 `execution.run_query()` creates an in-memory SQLite database for one fixture. It creates the reviewed schema and inserts the fixture rows using parameters.
 
-For model-generated SQL, the connection permits reads from the fixture's table and a small set of built-in functions. It rejects writes, attachments, PRAGMAs, metadata reads, extension loading and multiple statements. SQLite instruction/time, SQL length, value length and output-row limits bound supported work. This is a restricted local fixture runner, not a general-purpose SQL service.
+For model-generated SQL, the connection permits reads from the fixture's table and a small set of built-in functions. It rejects writes, attachments, PRAGMAs, metadata reads, extension loading and multiple statements. SQLite instruction/time, SQL length, value length and output-row limits bound supported work. Rows are streamed with an aggregate encoded-row payload limit of 65,536 bytes per query; binary values and non-finite numbers are reported as unsupported query results instead of breaking JSON report generation. This is a restricted local fixture runner, not a general-purpose SQL service.
 
 ## 4. Compare returned rows
 
@@ -117,7 +117,7 @@ The focused check is:
 ~/.local/bin/qtms-validate uv run python -m unittest test_execution.py
 ```
 
-It covers the actual unique-bikes regression, duplicate preservation, row ordering, empty result shapes, bad reference fixtures, read-only restrictions, multiple statements, runaway queries, output limits and SQL errors.
+It covers the actual unique-bikes regression, duplicate preservation, row ordering, empty result shapes, bad reference fixtures, read-only restrictions, multiple statements, runaway queries, output limits, report serialization and SQL errors. An independent read-only review found that BLOB results could abort JSON report generation; the focused regression reproduced that issue before the fix, and all thirteen checks pass with the fix.
 
 Read `execution_cases.json` first to see the data, `execution.py` next to see how one answer is judged, and `evaluate_execution.py` last to see model generation connected to scoring. No new Python dependency is needed; Python includes SQLite support.
 

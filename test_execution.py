@@ -88,6 +88,21 @@ class ExecutionTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(all("error" in fixture for fixture in result["fixtures"]))
 
+    def test_blob_output_is_a_failure_that_can_be_saved_as_json(self):
+        result = grade_query(bikes_case(), "SELECT CAST(bike_id AS BLOB) FROM trip")
+        self.assertFalse(result["passed"])
+        json.dumps(result, allow_nan=False)
+        self.assertIn("unsupported", result["fixtures"][0].get("error", ""))
+
+    def test_non_finite_numbers_are_rejected(self):
+        with self.assertRaisesRegex(QueryError, "unsupported"):
+            run_query(bikes_case(), [], "SELECT 1e999")
+
+    def test_aggregate_result_payload_is_bounded(self):
+        query = "WITH RECURSIVE n(s) AS (VALUES('a') UNION ALL SELECT s||s FROM n WHERE length(s)<65536) SELECT s FROM n"
+        with self.assertRaisesRegex(QueryError, "result limit"):
+            run_query(bikes_case(), [], query)
+
     def test_curated_reference_queries_match_hand_written_answers(self):
         cases = json.loads(Path(__file__).with_name("execution_cases.json").read_text())
         for case in cases:

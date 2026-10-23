@@ -37,7 +37,7 @@ To try the selected model, run:
 
 ```bash
 cd /Users/kianguyen/Dev/sql-finetune-mlx
-~/.local/bin/qtms-validate uv run python ask.py --adapter adapters/sql-v3
+uv run python ask.py --adapter adapters/sql-v3
 ```
 
 This generates an answer. It does not start training.
@@ -45,7 +45,7 @@ This generates an answer. It does not start training.
 To ask the original model the same default question:
 
 ```bash
-~/.local/bin/qtms-validate uv run python ask.py
+uv run python ask.py
 ```
 
 You can use the existing model immediately. Training a new version is a separate, optional step described below.
@@ -85,6 +85,10 @@ For example, the original model omitted `GROUP BY department` when asked for tot
 
 These results cover small, synthetic, single-table SQL tasks. Two questions test this project's date-storage convention. Full results, earlier failed attempts and evaluation limits are in [RESULTS.md](RESULTS.md).
 
+The follow-up on the same questions scored **11/12** for the larger Qwen2.5-3B-Instruct model without extra project training and **10/12** for the original 0.5B model with retrieved examples after removing Markdown fences. RAG's strict raw-response score was 7/12. Excluding the two local date-convention cases, the larger model and v3 tie at 10/10.
+
+See [MODEL_COMPARISON.md](MODEL_COMPARISON.md) for all twelve questions, generated SQL, strict scores, the separate code-fence diagnostic and reproduction commands. This was a retrospective comparison on already inspected questions.
+
 ## What each tool does
 
 | Tool | Job |
@@ -93,16 +97,15 @@ These results cover small, synthetic, single-table SQL tasks. Two questions test
 | MLX | Performs model computations on the Apple GPU |
 | MLX-LM | Loads the model, trains adapters and generates text |
 | SQLite | Executes the generated SQL so we can check its results |
-| `qtms-validate` | Queues heavy jobs on this Mac so they do not overlap |
 
-`qtms-validate` is a local work-queue wrapper, separate from MLX-LM. On another Mac without that wrapper, run the `uv run ...` portion of the model commands.
+Run model jobs sequentially on this 16 GB Mac. The QTMS validation wrapper is for QTMS work and is not needed by this project.
 
 ## Try your own question
 
 Supply both the table definition and the question:
 
 ```bash
-~/.local/bin/qtms-validate uv run python ask.py --adapter adapters/sql-v3 --schema 'CREATE TABLE products (name TEXT, price REAL);' --question 'What is the highest product price?'
+uv run python ask.py --adapter adapters/sql-v3 --schema 'CREATE TABLE products (name TEXT, price REAL);' --question 'What is the highest product price?'
 ```
 
 The expected query is:
@@ -145,7 +148,7 @@ The script refuses to replace an existing dataset.
 Run:
 
 ```bash
-~/.local/bin/qtms-validate uv run mlx_lm.lora --config train-v3.yaml --adapter-path adapters/my-sql-run-01
+uv run mlx_lm.lora --config train-v3.yaml --adapter-path adapters/my-sql-run-01
 ```
 
 Choose an unused directory name for each run. This keeps the selected `adapters/sql-v3` adapter available for comparison.
@@ -167,7 +170,7 @@ Training saves `adapters.safetensors`, `adapter_config.json` and snapshots every
 ### 3. Try your new adapter
 
 ```bash
-~/.local/bin/qtms-validate uv run python ask.py --adapter adapters/my-sql-run-01
+uv run python ask.py --adapter adapters/my-sql-run-01
 ```
 
 Change the directory in this command if you chose a different name.
@@ -178,10 +181,10 @@ Run both models on the same eight development questions:
 
 ```bash
 # Original model
-~/.local/bin/qtms-validate uv run python evaluate_execution.py --out results/my-original-dev.json
+uv run python evaluate_execution.py --out results/my-original-dev.json
 
 # Your new adapter
-~/.local/bin/qtms-validate uv run python evaluate_execution.py --adapter adapters/my-sql-run-01 --out results/my-sql-dev.json
+uv run python evaluate_execution.py --adapter adapters/my-sql-run-01 --out results/my-sql-dev.json
 ```
 
 Compare `correct_cases` in the two JSON reports. Read the saved SQL and failed fixtures to understand mistakes. Choose new report filenames when repeating a comparison; the script protects existing files.
@@ -225,6 +228,8 @@ Private repository: [khnguyenn/sql-finetune-mlx](https://github.com/khnguyenn/sq
 | `prepare_curriculum.py` | Builds and checks training examples |
 | `train-v3.yaml` | Controls the selected training recipe |
 | `evaluate_execution.py` | Connects model generation to result checking |
+| `retrieval.py` | Retrieves training examples with BM25 and adds them to the prompt |
+| `compare_results.py` | Separates strict execution scores from code-fence-only cleanup |
 | `execution.py` | Runs restricted SQL and compares returned rows |
 | `execution_cases.json` | The original eight development questions |
 | `execution_holdout.json` | Sixteen questions first used to evaluate v2 |
@@ -252,7 +257,7 @@ Reuse the dataset and choose a new report filename. Use a different adapter dire
 
 **How do I check code changes?**
 
-For training-data changes, run `~/.local/bin/qtms-validate uv run python -m unittest test_curriculum.py`. For SQL execution changes, run the corresponding `test_execution.py` file through the same queue.
+Run `uv run python -m unittest discover` to check the data split, curriculum, execution restrictions, retrieval and formatting diagnostic. These are small local tests and do not load or train a model.
 
 ## Data and references
 

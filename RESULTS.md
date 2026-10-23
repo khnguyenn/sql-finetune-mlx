@@ -1,0 +1,70 @@
+# First experiment: 2026-10-23
+
+Completed locally on Apple M4 with 16 GB unified memory, Python 3.12.14, MLX-LM 0.32.2 and the Metal GPU.
+
+## What ran
+
+- Prepared 1,000 training examples, 100 validation examples and 100 reserved test examples. Confirmed no table-name overlap; the longest selected conversation was 174 tokens.
+- Ran two focused data-split regression checks successfully.
+- Generated SQL using the original Qwen2.5-0.5B-Instruct model.
+- Saved a baseline on the first 20 validation examples using greedy decoding.
+- Trained `adapters/sql-v1` for 100 updates with batch size 1. The run trained 1.466 million parameters, 0.297% of 494.033 million model parameters. The final adapter is approximately 5.61 MiB.
+- Generated SQL using the same model with the saved adapter, then evaluated the same 20 validation examples.
+
+## Results
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Normalised SQL text matches | 5/20 | 9/20 |
+
+The metric ignores repeated whitespace and a final semicolon. It counts equivalent queries with different text as mismatches; it does not measure query execution accuracy. Several gains were changes from single quotes to the dataset's double-quote convention. This small validation comparison does not establish general SQL improvement.
+
+The training command reported validation loss of 1.282 at its initial evaluation and 0.169 at update 100, evaluating ten validation batches per check. These reported losses do not establish generated-query correctness.
+
+## Actual before and after
+
+Same prompt in both cases:
+
+```text
+Schema: CREATE TABLE employees (name TEXT, salary INTEGER);
+Question: How many employees earn more than 80000?
+```
+
+Original model output:
+
+```sql
+SELECT COUNT(name) FROM employees WHERE salary > 80000
+```
+
+Same model with adapter:
+
+```sql
+SELECT COUNT(*) FROM employees WHERE salary > 80000
+```
+
+`COUNT(name)` excludes rows where the name is NULL; `COUNT(*)` counts all matching employees. The schema permits NULL names, so the distinction matters.
+
+## A regression that the aggregate score hides
+
+Validation example 8 asks for the number of unique bikes in a trip table.
+
+```sql
+-- Before: counts unique bikes
+SELECT COUNT(DISTINCT bike_id) FROM trip
+
+-- After: counts every trip
+SELECT COUNT(*) FROM trip
+```
+
+Executed both on an illustrative local in-memory SQLite fixture with bike IDs `bike-a`, `bike-a`, `bike-b`. The original query returned 2, correctly; the adapted query returned 3. These are constructed demonstration rows, not the original dataset database. See `results/unique-bikes-fixture.json` for the saved check.
+
+## Saved evidence
+
+- `data/metadata.json`: pinned dataset revision and split sizes
+- `results/before-valid.json`: original predictions and scores
+- `results/after-valid.json`: adapted predictions and scores
+- `results/unique-bikes-fixture.json`: execution check for the unique-bikes regression
+- `adapters/sql-v1/adapter_config.json`: actual training settings
+- `adapters/sql-v1/adapters.safetensors`: trained adapter
+
+The test split has not been scored. A useful next lesson is to build execution-based checks and inspect data quality before choosing a second training configuration.
